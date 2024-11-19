@@ -1,0 +1,7 @@
+server:
+  port: "8000"
+  maxClients: 10
+
+dataset:
+  path: "data/amazon_reviews.csv"
+  partitions: 10
