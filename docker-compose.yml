@@ -1,0 +1,34 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: ./server/Dockerfile
+    ports:
+      - "8000:8000"
+    networks:
+      - recommender_net
+    volumes:
+      - ./data/:/app/data/
+      - ./config/:/app/config/
+    stdin_open: true # keep stdin open
+    tty: true # allocate pseudo-TTY
+  client:
+    build:
+      context: .
+      dockerfile: ./client/Dockerfile
+    depends_on:
+      - server
+    networks:
+      - recommender_net
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: 3g
+    volumes:
+      - ./config/:/app/config/
+    restart: "no"
+
+networks:
+  recommender_net:
+    driver: bridge
