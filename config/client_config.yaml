@@ -1,0 +1,5 @@
+server:
+  address: "server:8000"
+
+computation:
+  similarityMetric: "cosine"
