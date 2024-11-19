@@ -4,7 +4,8 @@ services:
       context: .
       dockerfile: ./server/Dockerfile
     ports:
-      - "8000:8000"
+      - "8000:8000" # Puerto para TCP
+      - "8080:8080" # Puerto para WebSocket
     networks:
       - recommender_net
     volumes:
@@ -12,6 +13,7 @@ services:
       - ./config/:/app/config/
     stdin_open: true # keep stdin open
     tty: true # allocate pseudo-TTY
+
   client:
     build:
       context: .
@@ -28,6 +30,17 @@ services:
     volumes:
       - ./config/:/app/config/
     restart: "no"
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    ports:
+      - "80:80" # Puerto para servir la UI
+    networks:
+      - recommender_net
+    depends_on:
+      - server
 
 networks:
   recommender_net:

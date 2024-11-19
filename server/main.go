@@ -5,14 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"net/http"
 	"os"
-	"recomendador/config"
-	"recomendador/utils"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"recomendador/config"
+	"recomendador/utils"
+
+	"github.com/gorilla/websocket"
 )
 
 var (
@@ -24,6 +29,12 @@ var (
 	recommendations   map[string][]string // Map of categories to recommendations
 	recommendationsMu sync.RWMutex        // Mutex for recommendations map
 )
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
 
 func main() {
 	// Load server configuration
@@ -48,7 +59,53 @@ func main() {
 	processAggregatedResults()
 
 	// Start the CLI for user interaction
-	startCLI()
+	go startCLI()
+
+	// Start the WebSocket server for UI interaction
+	startWebSocketServer()
+}
+
+func startWebSocketServer() {
+	http.HandleFunc("/ws", handleWebSocket)
+	fmt.Println("WebSocket Server running on ws://localhost:8080/ws")
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed: %v\n", err)
+		return
+	}
+	defer conn.Close()
+
+	for {
+		var req struct {
+			Category string `json:"category"`
+		}
+		err := conn.ReadJSON(&req)
+		if err != nil {
+			log.Printf("Error reading JSON: %v\n", err)
+			break
+		}
+
+		recommendationsMu.RLock()
+		recs, exists := recommendations[req.Category]
+		recommendationsMu.RUnlock()
+
+		if !exists {
+			recs = []string{}
+		}
+
+		resp := struct {
+			Recommendations []string `json:"recommendations"`
+		}{Recommendations: recs}
+		err = conn.WriteJSON(resp)
+		if err != nil {
+			log.Printf("Error writing JSON: %v\n", err)
+			break
+		}
+	}
 }
 
 func startTCPServer(cfg config.ServerConfig) {
@@ -155,8 +212,6 @@ func displayRecommendations(category string) {
 	}
 }
 
-// handleClient manages the communication with a client
-
 var clientWg sync.WaitGroup
 
 func handleClient(conn net.Conn, wg *sync.WaitGroup) {
@@ -192,11 +247,6 @@ func handleClient(conn net.Conn, wg *sync.WaitGroup) {
 	}
 	fmt.Printf("Sent partition data to client %s\n", clientAddr)
 
-	// Ensure the connection is flushed
-	//if tcpConn, ok := conn.(*net.TCPConn); ok {
-	//tcpConn.CloseWrite()
-	//}
-
 	// Receive results from client
 	decoder := json.NewDecoder(conn)
 	var results utils.ResultData
@@ -215,7 +265,6 @@ func handleClient(conn net.Conn, wg *sync.WaitGroup) {
 	aggregateResults(results)
 }
 
-// getNextPartition assigns the next available partition to a client
 func getNextPartition() []utils.Review {
 	partitionMutex.Lock()
 	defer partitionMutex.Unlock()
@@ -229,7 +278,6 @@ func getNextPartition() []utils.Review {
 	return partition
 }
 
-// aggregateResults collects results from clients
 func aggregateResults(results utils.ResultData) {
 	resultsMutex.Lock()
 	defer resultsMutex.Unlock()
@@ -237,7 +285,6 @@ func aggregateResults(results utils.ResultData) {
 	aggregatedResults = append(aggregatedResults, results)
 }
 
-// processAggregatedResults processes the final recommendations
 func processAggregatedResults() {
 	fmt.Println("Processing aggregated results...")
 
@@ -258,9 +305,6 @@ func processAggregatedResults() {
 		}
 	}
 
-	// log
-	// fmt.Printf("Aggregated Results: %+v\n", aggregatedResults)
-	// Convert map to slice and store in recommendations variable
 	recommendationsMu.Lock()
 	recommendations = make(map[string][]string)
 	for category, productsMap := range combinedRecommendations {
@@ -288,7 +332,6 @@ func processAggregatedResults() {
 
 	fmt.Println("Recommendations processing completed.")
 
-	// **Add this block to log the recommendations**
 	recommendationsMu.RLock()
 	defer recommendationsMu.RUnlock()
 	fmt.Println("Generated Recommendations:")
